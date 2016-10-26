@@ -6,7 +6,7 @@
 module Hw2 where
 
 import Control.Applicative hiding (empty, (<|>))
-import Data.Map
+import Data.Map hiding (foldl, foldr)
 import Control.Monad.State hiding (when)
 import Text.Parsec hiding (State, between)
 import Text.Parsec.Combinator hiding (between)
@@ -19,9 +19,9 @@ import Text.Parsec.String
 -- Tell us your name, email and student ID, by replacing the respective
 -- strings below
 
-myName  = "Write Your Name  Here"
-myEmail = "Write Your Email Here"
-mySID   = "Write Your SID   Here"
+myName  = "Dangyi Liu"
+myEmail = "dangyi@ucsd.edu"
+mySID   = "A53221859"
 
 
 -- Problem 1: All About `foldl`
@@ -32,26 +32,35 @@ mySID   = "Write Your SID   Here"
 -- 1. Describe `foldl` and give an implementation:
 
 myFoldl :: (a -> b -> a) -> a -> [b] -> a
-myFoldl f b xs = error "TBD"
+myFoldl _ b []     = b
+myFoldl f b (x:xs) = myFoldl f (f b x) xs
 
 -- 2. Using the standard `foldl` (not `myFoldl`), define the list reverse function:
 
 myReverse :: [a] -> [a]
-myReverse xs = error "TBD"
+myReverse = foldl (flip (:)) []
 
 -- 3. Define `foldr` in terms of `foldl`:
 
 myFoldr :: (a -> b -> b) -> b -> [a] -> b
-myFoldr f b xs = error "TBD"
+myFoldr f b xs = foldl (flip f) b (reverse xs)
 
 -- 4. Define `foldl` in terms of the standard `foldr` (not `myFoldr`):
 
 myFoldl2 :: (a -> b -> a) -> a -> [b] -> a
-myFoldl2 f b xs = error "TBD"
+myFoldl2 f b xs = foldr (flip f) b (reverse xs)
 
 -- 5. Try applying `foldl` to a gigantic list. Why is it so slow?
 --    Try using `foldl'` (from [Data.List](http://www.haskell.org/ghc/docs/latest/html/libraries/base/Data-List.html#3))
 --    instead; can you explain why it's faster?
+
+-- Answer:
+-- According to https://wiki.haskell.org/Foldr_Foldl_Foldl'
+-- This is because Haskell's lazy reduction strategy: expressions are reduced only when they are actually needed
+-- Thus even we have (((1 + 2) + 3) + 4), we do not evaluate (1 + 2) until we build the whole expression
+-- The solution is to force evaluate (1 + 2) before we come to ((1 + 2) + 3)
+-- A possible implementation is
+--   foldl' f b (x:xs) = seq b' $ foldl' f b' xs where b' = f b x
 
 -- Part 2: Binary Search Trees
 -- ===========================
@@ -65,7 +74,13 @@ data BST k v = Emp
 -- Define a `delete` function for BSTs of this type:
 
 delete :: (Ord k) => k -> BST k v -> BST k v
-delete k t = error "TBD"
+delete _ Emp  = Emp
+delete x (Bind k v l r)
+  | x < k     = Bind k v (Hw2.delete x l) r
+  | x > k     = Bind k v l (Hw2.delete x r)
+  | otherwise = insertLeft l r
+    where insertLeft l Emp              = l
+          insertLeft l (Bind k v l' r') = Bind k v (insertLeft l l') r'
 
 -- Part 3: An Interpreter for WHILE
 -- ================================
@@ -198,7 +213,7 @@ execS = error "TBD"
 
 run :: Statement -> IO ()
 run stmt = do putStrLn "Output Store:"
-              putStrLn $ show $ execS stmt empty
+              print $ execS stmt empty
 
 -- Here are a few "tests" that you can use to check your implementation.
 
@@ -299,8 +314,3 @@ runFile s = do p <- parseFromFile statementP s
 -- Output Store:
 -- fromList [("F",IntVal 2),("N",IntVal 0),("X",IntVal 1),("Z",IntVal 2)]
 -- ~~~~~
-
-
-
-
-
