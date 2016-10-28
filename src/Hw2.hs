@@ -7,7 +7,7 @@ module Hw2 where
 
 import Control.Applicative hiding (empty, (<|>))
 import Data.Map hiding (foldl, foldr)
-import Control.Monad.State hiding (when)
+import Control.Monad.State
 import Text.Parsec hiding (State, between)
 import Text.Parsec.Combinator hiding (between)
 import Text.Parsec.Char
@@ -161,13 +161,26 @@ evalE :: Expression -> State Store Value
 -- the value of the "current store" in a variable `s` use `s <- get`.
 
 evalOp :: Bop -> Value -> Value -> Value
-evalOp Plus (IntVal i) (IntVal j) = IntVal (i+j)
+evalOp op (IntVal i) (IntVal j) = case op of
+                                    Plus   -> IntVal  (i + j)
+                                    Minus  -> IntVal  (i - j)
+                                    Times  -> IntVal  (i * j)
+                                    Divide -> IntVal  (i `div` j)
+                                    Gt     -> BoolVal (i > j)
+                                    Ge     -> BoolVal (i >= j)
+                                    Lt     -> BoolVal (i < j)
+                                    Le     -> BoolVal (i <= j)
 
 -- >
 
-evalE (Var x)      = error "TBD"
-evalE (Val v)      = error "TBD"
-evalE (Op o e1 e2) = error "TBD"
+evalE (Var x)      = do s <- get
+                        case Data.Map.lookup x s of
+                          Nothing -> return (IntVal 0)
+                          Just v  -> return v
+evalE (Val v)      = return v
+evalE (Op o e1 e2) = do v1 <- evalE e1
+                        v2 <- evalE e2
+                        return (evalOp o v1 v2)
 
 -- Statement Evaluator
 -- -------------------
@@ -185,18 +198,29 @@ evalS :: Statement -> State Store ()
 -- Thus, to "update" the value of the store with the new store `s'`
 -- do `put s'`.
 
-evalS (Assign x e )    = error "TBD"
-evalS w@(While e s)    = error "TBD"
-evalS Skip             = error "TBD"
-evalS (Sequence s1 s2) = error "TBD"
-evalS (If e s1 s2)     = error "TBD"
+evalS (Assign x e)     = do v <- evalE e
+                            s <- get
+                            put (insert x v s)
+evalS w@(While e s)    = do v <- evalE e
+                            case v of
+                              BoolVal True -> do evalS s
+                                                 evalS w
+                              _            -> return ()
+evalS Skip             = return ()
+evalS (Sequence s1 s2) = do evalS s1
+                            evalS s2
+evalS (If e s1 s2)     = do v <- evalE e
+                            case v of
+                              BoolVal True  -> evalS s1
+                              BoolVal False -> evalS s2
+                              _             -> return ()
 
 -- In the `If` case, if `e` evaluates to a non-boolean value, just skip both
 -- the branches. (We will convert it into a type error in the next homework.)
 -- Finally, write a function
 
 execS :: Statement -> Store -> Store
-execS = error "TBD"
+execS stmt = execState (evalS stmt)
 
 -- such that `execS stmt store` returns the new `Store` that results
 -- from evaluating the command `stmt` from the world `store`.
