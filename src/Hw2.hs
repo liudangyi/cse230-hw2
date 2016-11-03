@@ -5,8 +5,8 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 module Hw2 where
 
-import Control.Applicative hiding (empty, (<|>))
-import Data.Map hiding (foldl, foldr)
+import Control.Applicative hiding (empty, (<|>), many)
+import Data.Map hiding (foldl, foldr, delete)
 import Control.Monad.State
 import Text.Parsec hiding (State, between)
 import Text.Parsec.Combinator hiding (between)
@@ -56,7 +56,7 @@ myFoldl2 f b xs = foldr (flip f) b (reverse xs)
 
 -- Answer:
 -- According to https://wiki.haskell.org/Foldr_Foldl_Foldl'
--- This is because Haskell's lazy reduction strategy: expressions are reduced only when they are actually needed
+-- This is due to Haskell's lazy reduction strategy: expressions are reduced only when they are actually needed
 -- Thus even we have (((1 + 2) + 3) + 4), we do not evaluate (1 + 2) until we build the whole expression
 -- The solution is to force evaluate (1 + 2) before we come to ((1 + 2) + 3)
 -- A possible implementation is
@@ -76,8 +76,8 @@ data BST k v = Emp
 delete :: (Ord k) => k -> BST k v -> BST k v
 delete _ Emp  = Emp
 delete x (Bind k v l r)
-  | x < k     = Bind k v (Hw2.delete x l) r
-  | x > k     = Bind k v l (Hw2.delete x r)
+  | x < k     = Bind k v (delete x l) r
+  | x > k     = Bind k v l (delete x r)
   | otherwise = insertLeft l r
     where insertLeft l Emp              = l
           insertLeft l (Bind k v l' r') = Bind k v (insertLeft l l') r'
@@ -175,12 +175,12 @@ evalOp op (IntVal i) (IntVal j) = case op of
 
 evalE (Var x)      = do s <- get
                         case Data.Map.lookup x s of
-                          Nothing -> return (IntVal 0)
+                          Nothing -> return $ IntVal 0
                           Just v  -> return v
 evalE (Val v)      = return v
 evalE (Op o e1 e2) = do v1 <- evalE e1
                         v2 <- evalE e2
-                        return (evalOp o v1 v2)
+                        return $ evalOp o v1 v2
 
 -- Statement Evaluator
 -- -------------------
@@ -203,8 +203,7 @@ evalS (Assign x e)     = do v <- evalE e
                             put (insert x v s)
 evalS w@(While e s)    = do v <- evalE e
                             case v of
-                              BoolVal True -> do evalS s
-                                                 evalS w
+                              BoolVal True -> evalS s >> evalS w
                               _            -> return ()
 evalS Skip             = return ()
 evalS (Sequence s1 s2) = do evalS s1
@@ -277,24 +276,30 @@ valueP = intP <|> boolP
 -- To do so, fill in the implementations of
 
 intP :: Parser Value
-intP = error "TBD"
+intP = IntVal . read <$> many1 digit
 
 -- Next, define a parser that will accept a
 -- particular string `s` as a given value `x`
 
 constP :: String -> a -> Parser a
-constP s x = error "TBD"
+constP s x = string s >> return x
 
 -- and use the above to define a parser for boolean values
 -- where `"true"` and `"false"` should be parsed appropriately.
 
 boolP :: Parser Value
-boolP = error "TBD"
+boolP = constP "true"  (BoolVal True)
+    <|> constP "false" (BoolVal False)
 
 -- Continue to use the above to parse the binary operators
 
 opP :: Parser Bop
-opP = error "TBD"
+opP = constP "+"  Plus
+  <|> constP "-"  Minus
+  <|> constP "*"  Times
+  <|> constP "/"  Divide
+  <|> (char '>' >> (constP "=" Ge <|> return Gt))
+  <|> (char '<' >> (constP "=" Le <|> return Lt))
 
 
 -- Parsing Expressions
@@ -309,7 +314,24 @@ varP = many1 upper
 -- Use the above to write a parser for `Expression` values
 
 exprP :: Parser Expression
-exprP = error "TBD"
+exprP = term >>= rest
+  where
+    term   = paran <|> Var <$> varP <|> Val <$> valueP
+    paran  = do char '('
+                spaces
+                e <- exprP
+                spaces
+                char ')'
+                return e
+    rest x = spaces >> (grab x <|> return x)
+    grab x = do o <- opP
+                spaces
+                y <- term
+                rest $ Op o x y
+
+runExpr s = case parse exprP "" s of
+              Left err -> print err
+              Right ex -> print $ evalState (evalE ex) empty
 
 -- Parsing Statements
 -- ------------------
@@ -317,7 +339,41 @@ exprP = error "TBD"
 -- Next, use the expression parsers to build a statement parser
 
 statementP :: Parser Statement
-statementP = error "TBD"
+statementP = (assignP <|> ifP <|> whileP <|> skipP) >>= rest
+  where
+    assignP = do v <- varP
+                 blanks
+                 string ":="
+                 blanks
+                 e <- exprP
+                 return $ Assign v e
+    ifP     = do sb1 "if"
+                 expr <- exprP
+                 sb1 "then"
+                 stmt1 <- statementP
+                 sb1 "else"
+                 stmt2 <- statementP
+                 string "endif"
+                 return $ If expr stmt1 stmt2
+    whileP  = do sb1 "while"
+                 expr <- exprP
+                 sb1 "do"
+                 stmt <- statementP
+                 string "endwhile"
+                 return $ While expr stmt
+    skipP   = constP "skip" Skip
+    rest st = blanks >> (grab st <|> return st)
+    grab st = do char ';'
+                 blanks
+                 st' <- statementP
+                 return $ Sequence st st'
+    blanks  = many  (space <|> endOfLine)
+    blanks1 = many1 (space <|> endOfLine)
+    sb1 str = string str >> blanks1
+
+runStat s = case parse statementP "" s of
+              Left err -> print err
+              Right st -> run st
 
 -- When you are done, we can put the parser and evaluator together
 -- in the end-to-end interpreter function
